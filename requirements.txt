@@ -1,0 +1,7 @@
+Flask
+Flask-SocketIO
+paho-mqtt
+msgpack
+eventlet 
+gunicorn 
+requests

@@ -1,0 +1,37 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background: #1a1a1a;
+    color: #fff;
+  }
+  
+  h1 {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  
+  .topic-box {
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .topic-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .topic-content {
+    background: #444;
+    padding: 10px;
+    margin-top: 10px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    border-radius: 4px;
+    display: block;
+  }
+  

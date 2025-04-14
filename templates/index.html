@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Robot MQTT Dashboard</title>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <!-- Leaflet CSS (For OpenStreetMap) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+    <style>
+        :root {
+            --bg-dark: #1a1d24;
+            --bg-medium: #282c34;
+            --bg-light: #3a3f4a;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --accent-color: #f39c12;
+            --accent-hover: #e67e22;
+            --border-color: #444;
+            --sidebar-width: 250px;
+            --header-height: 60px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: var(--bg-medium);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden; /* Prevent body scroll */
+        }
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            flex-shrink: 0;
+            border-right: 1px solid var(--border-color);
+        }
+        .logo-container { padding: 15px; text-align: center; border-bottom: 1px solid var(--border-color); }
+        .logo { max-width: 70%; height: auto; }
+        .sidebar-nav { flex-grow: 1; padding-top: 20px; overflow-y: auto; }
+        .nav-item { display: flex; align-items: center; padding: 15px 20px; color: var(--text-secondary); text-decoration: none; font-size: 1.1em; cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease; border-left: 4px solid transparent; }
+        .nav-item:hover { background-color: var(--bg-light); color: var(--text-primary); }
+        .nav-item.active { background-color: rgba(243, 156, 18, 0.1); color: var(--accent-color); border-left-color: var(--accent-color); }
+        .nav-item i { margin-right: 15px; width: 20px; text-align: center; }
+
+        .main-content-wrapper {
+            flex-grow: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevent wrapper scroll */
+        }
+        .main-header {
+            height: var(--header-height);
+            background-color: var(--bg-dark);
+            display: flex;
+            align-items: center;
+            padding: 0 25px;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .robot-selector-container { display: flex; align-items: center; gap: 10px; }
+        .robot-selector-container label { font-size: 1.1em; color: var(--text-secondary); }
+        #robot-selector {
+            padding: 8px 12px; background-color: var(--bg-light); color: var(--text-primary);
+            border: 1px solid var(--border-color); border-radius: 4px; font-size: 1em;
+            min-width: 150px; cursor: pointer;
+        }
+        #robot-selector:focus { outline: none; border-color: var(--accent-color); }
+
+        .content-area {
+            flex-grow: 1;
+            overflow: hidden; /* Changed from auto to hidden */
+            display: flex; /* Use flex here to manage views */
+            flex-direction: column; /* Stack views vertically */
+        }
+        .content-view {
+            display: none; /* Hide views by default */
+            flex-grow: 1;
+            padding: 0; /* Remove padding from view container */
+            overflow: hidden; /* Prevent individual view scroll - children will scroll */
+            height: 100%; /* Make view take full height */
+        }
+        .content-view.active {
+            display: flex; /* Show active view using flex */
+            flex-direction: column; /* Default direction for view content */
+        }
+
+        /* Dashboard Specific Styles */
+        #dashboard-view {
+             flex-direction: row; /* Override to side-by-side layout */
+             gap: 20px;
+             height: 100%; /* Ensure it fills parent */
+             padding: 20px; /* Add padding for the overall dashboard view */
+             max-height: 100%; /* Explicit max-height */
+        }
+        .topic-list-container, .topic-data-container {
+            background-color: var(--bg-dark);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            height: 100%; /* Fill available height within #dashboard-view */
+            max-height: 100%;
+            overflow: hidden; /* Prevent these containers from scrolling */
+        }
+        .topic-list-container {
+            width: 35%;
+            max-width: 400px;
+            min-width: 250px;
+            flex-shrink: 0;
+        }
+        .topic-data-container {
+            flex-grow: 1;
+        }
+        .topic-list-header, .topic-data-header {
+            font-size: 1.2em; color: var(--text-primary); padding: 15px;
+            border-bottom: 1px solid var(--border-color); flex-shrink: 0;
+            word-break: break-all; height: 50px; line-height: 20px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        #topic-list {
+             overflow-y: auto; /* Allow topic list itself to scroll */
+             padding: 15px;
+             flex-grow: 1;
+             /* Removed fixed height - flex-grow handles it */
+        }
+        .topic-item {
+            padding: 10px 12px; background-color: var(--bg-medium); color: var(--text-secondary);
+            border-radius: 5px; margin-bottom: 8px; cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease;
+            font-size: 0.9em; word-break: break-all;
+        }
+        .topic-item:hover { background-color: var(--bg-light); color: var(--text-primary); }
+        .topic-item.active { background-color: var(--accent-color); color: var(--bg-dark); font-weight: bold; }
+
+        .data-content-area {
+            flex-grow: 1;
+            height: calc(100% - 50px); /* Fill remaining space below header */
+            background-color: var(--bg-medium);
+            border-radius: 0 0 5px 5px;
+            display: flex; /* Keep as flex container */
+            flex-direction: row; /* Default to row (for map view) */
+            overflow: hidden; /* Prevent this area itself from scrolling */
+            /* Reset alignment - JS will manage based on content */
+            justify-content: flex-start;
+            align-items: stretch;
+        }
+
+        .mqtt-data-display { /* Applies to the <pre> tag */
+            background-color: transparent; color: var(--text-primary);
+            white-space: pre-wrap; word-wrap: break-word;
+            font-family: 'Courier New', Courier, monospace; font-size: 0.9em;
+            display: none; /* Hide by default */
+            width: 100%;      /* Take full width of parent when visible */
+            height: 100%;     /* Take full height of parent when visible */
+            overflow: auto;   /* Enable scrolling WITHIN the <pre> tag */
+            padding: 15px;    /* Add padding */
+        }
+
+        .mqtt-data-display.waiting {
+            color: var(--text-secondary);
+            font-style: italic;
+            display: flex; /* Use flex to center the text *inside* the pre */
+            justify-content: center;
+            align-items: center;
+            text-align: center; /* Ensure text centers if wrapping */
+        }
+        /* Specific waiting style for topic list */
+        .topic-list-container .waiting, #topic-list .waiting {
+            color: var(--text-secondary);
+            font-style: italic;
+            text-align: center;
+            width: 100%;
+            padding: 15px;
+        }
+
+
+        /* --- Styles for the Map Canvas --- */
+        #routed-map-canvas-container {
+            /* width: 40%; /* JS will set width */
+            height: 100%; /* Fill height */
+            display: none; /* Hide by default */
+            overflow: hidden;
+            background-color: #333;
+            /* Use flex to center canvas inside */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0; /* Prevent shrinking in flex row */
+            border-left: 1px solid var(--border-color); /* Separator */
+        }
+        #routed-map-canvas {
+            display: block;
+            max-width: 100%; max-height: 100%;
+            object-fit: contain; /* Scale down large maps */
+            image-rendering: pixelated; /* Good for grid maps */
+        }
+
+        /* --- Styles for OpenStreetMap --- */
+        #osm-map-container {
+            /* width: 60%; /* Let JS set width */
+            height: 100%; /* Fill height */
+            display: none; /* Hide by default */
+            flex-shrink: 0; /* Prevent shrinking */
+        }
+        #osm-map {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-light); /* Placeholder background */
+        }
+        /* Ensure Leaflet controls are visible */
+        .leaflet-control-attribution, .leaflet-control-zoom {
+            background: rgba(255, 255, 255, 0.7) !important;
+            color: #333 !important;
+        }
+
+        /* Placeholder styles */
+        #location-view, #settings-view {
+             align-items: center; justify-content: center; font-size: 1.5em;
+             color: var(--text-secondary); padding: 25px;
+             flex-grow: 1; /* Make sure they fill space */
+             text-align: center;
+             overflow-y: auto; /* Allow scrolling if content overflows */
+        }
+        .content-title { font-size: 1.8em; color: var(--text-primary); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); }
+
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="logo-container">
+             <!-- Adjust path if needed -->
+             <img src="/static/assets/aa.png" alt="Logo" class="logo">
+        </div>
+        <nav class="sidebar-nav">
+            <a class="nav-item active" data-view="dashboard-view">
+                <i class="fas fa-tachometer-alt"></i> <span>Dashboard</span>
+            </a>
+            <a class="nav-item" data-view="location-view">
+                <i class="fas fa-map-marker-alt"></i> <span>Location</span>
+            </a>
+            <a class="nav-item" data-view="settings-view">
+                <i class="fas fa-cog"></i> <span>Settings</span>
+            </a>
+        </nav>
+    </aside>
+
+    <!-- Main Content Wrapper -->
+    <div class="main-content-wrapper">
+        <!-- Header with Robot Selector -->
+        <header class="main-header">
+             <div class="robot-selector-container">
+                 <label for="robot-selector"><i class="fas fa-robot"></i> Select Robot:</label>
+                 <select id="robot-selector">
+                     <option value="">-- Loading Robots --</option>
+                 </select>
+             </div>
+        </header>
+
+        <!-- Content Area -->
+        <main class="content-area">
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="content-view active">
+                <!-- Topic List Column -->
+                <div class="topic-list-container">
+                    <div class="topic-list-header" id="topic-list-header">Topics</div>
+                    <div id="topic-list">
+                        <p class="waiting">Select a robot first.</p>
+                    </div>
+                </div>
+                <!-- Topic Data Column -->
+                <div class="topic-data-container">
+                    <div class="topic-data-header" id="topic-data-header">Select a robot and topic</div>
+                    <!-- Area where data/maps appear -->
+                    <div class="data-content-area" id="data-content-area">
+                         <!-- OSM Map Container (Left side when routed_map active) -->
+                         <div id="osm-map-container">
+                             <div id="osm-map"></div>
+                         </div>
+                         <!-- Raw Data Display (Takes full width when not routed_map) -->
+                         <pre id="mqtt-data-display" class="mqtt-data-display waiting">No data yet.</pre>
+                         <!-- Routed Map Canvas (Right side when routed_map active) -->
+                         <div id="routed-map-canvas-container">
+                             <canvas id="routed-map-canvas"></canvas>
+                         </div>
+                     </div>
+                </div>
+            </div>
+
+            <!-- Location View (Placeholder) -->
+            <div id="location-view" class="content-view">
+                <div> <!-- Added wrapper for centering -->
+                    <h2 class="content-title">Location</h2>
+                    <p>Location tracking information for the selected robot will be displayed here.</p>
+                     <p>(This view is currently a placeholder)</p>
+                </div>
+            </div>
+
+            <!-- Settings View (Placeholder) -->
+            <div id="settings-view" class="content-view">
+                 <div> <!-- Added wrapper for centering -->
+                    <h2 class="content-title">Settings</h2>
+                    <p>Configuration options for the selected robot will be available here.</p>
+                    <p>(This view is currently a placeholder)</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- External Libraries -->
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+
+    <!-- Application Logic -->
+    <script>
+        const socket = io();
+
+        // --- State Variables ---
+        let knownRobots = [];
+        let expectedSubTopics = []; // From server, potential topics
+        let latestData = {}; // Structure: { robotId: { subTopic: payload, ... }, ... }
+        let currentView = 'dashboard-view';
+        let selectedRobot = null;
+        let selectedSubTopic = null;
+        let osmMap = null; // Leaflet map instance
+        let robotMarker = null; // Leaflet marker for robot
+        let robotIcon = null; // Leaflet icon
+
+        // --- DOM Elements ---
+        const sidebarNavItems = document.querySelectorAll('.nav-item');
+        const contentViews = document.querySelectorAll('.content-view');
+        const robotSelector = document.getElementById('robot-selector');
+        const topicListContainer = document.getElementById('topic-list');
+        const topicListHeader = document.getElementById('topic-list-header');
+        const dataDisplayHeader = document.getElementById('topic-data-header');
+        const dataDisplayElement = document.getElementById('mqtt-data-display'); // The <pre> tag
+        const mapCanvasContainer = document.getElementById('routed-map-canvas-container');
+        const mapCanvas = document.getElementById('routed-map-canvas');
+        const mapCtx = mapCanvas.getContext('2d');
+        const dataContentArea = document.getElementById('data-content-area'); // Parent of maps/pre
+        const osmMapContainer = document.getElementById('osm-map-container');
+        const osmMapElement = document.getElementById('osm-map');
+
+
+        // --- Initialization ---
+        window.onload = () => {
+            setupEventListeners();
+            showView('dashboard-view'); // Start on dashboard
+            setStatus("Connecting to server...");
+            // Define robot icon (ensure path is correct relative to web server root)
+            robotIcon = L.icon({
+                iconUrl: '/static/assets/robot.png', // ADJUST PATH IF NEEDED
+                iconSize: [32, 32],
+                iconAnchor: [16, 16],
+            });
+            robotSelector.disabled = true; // Disable until connected
+        };
+
+        function initOsmMap() {
+            if (osmMap) return; // Already initialized
+            if (!osmMapElement) {
+                console.error("OSM Map DOM element not found!");
+                return;
+            }
+            try {
+                // Default view (e.g., Hanoi) - will be updated when robot position is known
+                osmMap = L.map(osmMapElement).setView([21.0285, 105.8542], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(osmMap);
+                 console.log("OSM Map Initialized");
+            } catch (e) {
+                console.error("Failed to initialize OpenStreetMap:", e);
+                osmMapElement.innerHTML = '<p class="waiting" style="padding:15px; color:red;">Failed to load map.</p>';
+            }
+        }
+
+        // Sets status message in the data header AND the <pre> tag area
+        function setStatus(message, isWaiting = true) {
+            // Update the header above the data area
+            dataDisplayHeader.textContent = message;
+
+            // Always hide map elements when setting a general status that uses the <pre> area
+            osmMapContainer.style.display = 'none';
+            mapCanvasContainer.style.display = 'none';
+
+            // Ensure the <pre> tag is visible to show the status
+            dataDisplayElement.style.display = 'flex'; // Use flex to enable easy centering via .waiting
+            dataDisplayElement.textContent = message; // Set text content
+
+            // Apply/remove waiting class for styling the text inside <pre>
+            if (isWaiting) {
+                dataDisplayElement.classList.add('waiting');
+            } else {
+                 dataDisplayElement.classList.remove('waiting');
+                 // Potentially revert display if needed, though 'flex' might be fine
+                 // dataDisplayElement.style.display = 'block';
+            }
+
+            // Ensure the main data area is set up to display the single <pre> correctly
+            dataContentArea.style.justifyContent = 'flex-start'; // Align <pre> to start
+            dataContentArea.style.alignItems = 'stretch'; // Make <pre> fill height
+
+            // Clear topic list/header if no robot is selected
+            if (!selectedRobot) {
+                topicListContainer.innerHTML = `<p class="waiting">${message}</p>`;
+                topicListHeader.textContent = "Topics";
+            }
+        }
+
+        // --- Robot Handling ---
+        function populateRobotSelector(robots) {
+             knownRobots = robots || []; // Ensure it's an array
+             const currentSelectedValue = selectedRobot; // Keep track of the actual selected robot ID
+             robotSelector.innerHTML = ''; // Clear existing options
+
+             if (knownRobots.length === 0) {
+                 const option = document.createElement('option');
+                 option.value = ""; option.textContent = "-- No Robots Available --";
+                 robotSelector.appendChild(option);
+                 robotSelector.disabled = true;
+                 setStatus("No robots available.");
+                 return;
+             }
+
+             robotSelector.disabled = false; // Enable selector if robots exist
+
+             // Add the prompt option
+             const promptOption = document.createElement('option');
+             promptOption.value = ""; promptOption.textContent = "-- Select a Robot --";
+             // Disable prompt only if a robot is *currently* selected
+             promptOption.disabled = selectedRobot !== null;
+             robotSelector.appendChild(promptOption);
+
+             // Add options for each robot
+             knownRobots.forEach(robotId => {
+                 const option = document.createElement('option');
+                 option.value = robotId; option.textContent = robotId;
+                 robotSelector.appendChild(option);
+             });
+
+             // Restore selection if the previously selected robot still exists
+             if (currentSelectedValue && knownRobots.includes(currentSelectedValue)) {
+                 robotSelector.value = currentSelectedValue;
+                 promptOption.disabled = true; // Keep prompt disabled
+             } else {
+                 // If no robot was selected, or the selected one disappeared
+                 robotSelector.value = ""; // Set to prompt
+                 selectedRobot = null; // Clear state variable
+                 selectedSubTopic = null;
+                 populateTopicList(null); // Clear topic list
+                 setStatus("Please select a robot.", true);
+                 if (robotMarker) {
+                     robotMarker.remove();
+                     robotMarker = null;
+                 }
+             }
+        }
+
+        function selectRobot(robotId) {
+             // Handle de-selection (choosing "-- Select a Robot --")
+             if (!robotId) {
+                 if (selectedRobot === null) return; // Already deselected
+                 console.log("Robot deselected.");
+                 selectedRobot = null;
+                 selectedSubTopic = null;
+                 setStatus("Please select a robot.", true);
+                 populateTopicList(null);
+                 robotSelector.value = ""; // Ensure dropdown shows prompt
+                 const promptOption = robotSelector.querySelector('option[value=""]');
+                 if (promptOption) promptOption.disabled = false; // Re-enable prompt
+                 if (robotMarker) {
+                     robotMarker.remove();
+                     robotMarker = null;
+                 }
+                 renderData(); // Clear data area
+                 return;
+             }
+
+             // Avoid re-selecting the same robot
+             if (robotId === selectedRobot) return;
+
+             console.log(`Robot selected: ${robotId}`);
+             selectedRobot = robotId;
+             selectedSubTopic = null; // Reset selected topic when robot changes
+
+             // Remove marker from previous robot if it exists
+             if (robotMarker) {
+                 robotMarker.remove();
+                 robotMarker = null;
+             }
+
+             populateTopicList(robotId); // Update topics for the new robot
+             setStatus(`Select a topic for ${robotId}.`, true); // Update status message
+
+             // Disable the "-- Select --" prompt
+             const promptOption = robotSelector.querySelector('option[value=""]');
+             if (promptOption) promptOption.disabled = true;
+
+             // Force render to clear old data/maps and show "Select a topic..."
+             renderData();
+        }
+
+        // --- Topic Handling ---
+         function getSubTopicsForRobot(robotId) {
+            if (!robotId) return [];
+            // Combine predefined topics with dynamically received topics
+            const combinedTopics = new Set(expectedSubTopics || []);
+            if (latestData[robotId]) {
+                Object.keys(latestData[robotId]).forEach(key => combinedTopics.add(key));
+            }
+            return Array.from(combinedTopics).sort(); // Return sorted array
+        }
+
+        function populateTopicList(robotId) {
+            if (!topicListContainer) return;
+            topicListContainer.innerHTML = ''; // Clear previous list
+
+            if (!robotId) {
+                topicListContainer.innerHTML = `<p class="waiting">Select a robot first.</p>`;
+                topicListHeader.textContent = "Topics";
+                return;
+            }
+
+            const subTopics = getSubTopicsForRobot(robotId);
+            topicListHeader.textContent = `Topics for ${robotId}`;
+
+            if (subTopics.length === 0) {
+                topicListContainer.innerHTML = `<p class="waiting">No topics defined or received yet for ${robotId}.</p>`;
+                return;
+            }
+
+            subTopics.forEach(subTopic => {
+                const topicItem = document.createElement('div');
+                topicItem.className = 'topic-item';
+                topicItem.textContent = subTopic;
+                topicItem.dataset.subTopic = subTopic; // Store subtopic name
+                topicItem.onclick = () => selectSubTopic(subTopic);
+                // Highlight if it's the currently selected topic for this robot
+                if (selectedRobot === robotId && selectedSubTopic === subTopic) {
+                    topicItem.classList.add('active');
+                }
+                topicListContainer.appendChild(topicItem);
+            });
+        }
+
+        function selectSubTopic(subTopic) {
+            if (!subTopic || !selectedRobot) {
+                console.warn("Cannot select subtopic without robot or subtopic name");
+                return;
+            }
+            // No change if clicking the already active topic
+            // if (subTopic === selectedSubTopic) return;
+
+            console.log(`Topic selected: ${selectedRobot} / ${subTopic}`);
+            selectedSubTopic = subTopic;
+            dataDisplayHeader.textContent = `Data for: ${selectedRobot} / ${subTopic}`;
+
+            // Update active class in topic list visually
+            const items = topicListContainer.querySelectorAll('.topic-item');
+            items.forEach(item => {
+                 item.classList.toggle('active', item.dataset.subTopic === selectedSubTopic);
+            });
+
+            // --- CONFIGURE LAYOUT based on selectedSubTopic ---
+            if (selectedSubTopic === 'routed_map') {
+                initOsmMap(); // Ensure OSM map is ready (safe to call multiple times)
+
+                // Hide text display, show maps
+                dataDisplayElement.style.display = 'none';
+                dataDisplayElement.classList.remove('waiting');
+                osmMapContainer.style.display = 'block'; // Show OSM Map container
+                mapCanvasContainer.style.display = 'flex'; // Show Canvas container
+
+                // Set layout for split view
+                dataContentArea.style.justifyContent = 'flex-start'; // Align maps to the left
+                dataContentArea.style.alignItems = 'stretch'; // Make maps fill height
+
+                // Adjust container widths (Example: 60% OSM, 40% Canvas)
+                osmMapContainer.style.width = '60%';
+                mapCanvasContainer.style.width = '40%';
+
+                // Invalidate map size for Leaflet AFTER it's visible
+                if(osmMap) {
+                    setTimeout(() => {
+                        try {
+                            osmMap.invalidateSize();
+                            console.log("OSM Map invalidated size.");
+                            // Immediately try to place marker if data is already available
+                            updateOsmMapPositionFromStatus();
+                         } catch(e) {
+                             console.error("Error invalidating map size:", e);
+                         }
+                    }, 10); // Small delay often helps rendering engines catch up
+                }
+
+            } else { // Handle regular topics (display in <pre>)
+                // Show text display, hide maps
+                dataDisplayElement.style.display = 'block'; // Show text display (will be flex if waiting)
+                osmMapContainer.style.display = 'none'; // Hide OSM Map
+                mapCanvasContainer.style.display = 'none'; // Hide Canvas
+
+                // Set layout for single view (<pre> tag)
+                dataContentArea.style.justifyContent = 'flex-start'; // Align <pre> to start
+                dataContentArea.style.alignItems = 'stretch'; // Make <pre> fill the height
+
+                // Reset container widths (not strictly necessary as they are hidden, but good practice)
+                osmMapContainer.style.width = 'auto';
+                mapCanvasContainer.style.width = 'auto';
+            }
+
+            renderData(); // Render the actual data (text, canvas, or waiting message)
+        }
+
+
+        // --- Data Rendering ---
+        function renderData() {
+             // Case 1: No robot or topic selected -> Show status message
+             if (!selectedRobot || !selectedSubTopic) {
+                 const message = !selectedRobot ? "Please select a robot." : `Select a topic for ${selectedRobot}.`;
+                 setStatus(message, true); // Use setStatus to handle layout correctly
+                 // Ensure maps are hidden if we reach here unexpectedly
+                 osmMapContainer.style.display = 'none';
+                 mapCanvasContainer.style.display = 'none';
+                 dataDisplayElement.style.display = 'flex'; // Show pre with waiting message
+                 dataDisplayElement.classList.add('waiting');
+                 return;
+             }
+
+             // Case 2: Robot and topic are selected, get the data
+             const data = latestData[selectedRobot]?.[selectedSubTopic];
+             let isWaitingOrError = false;
+             let statusMessage = "";
+             let headerText = `Data for: ${selectedRobot} / ${selectedSubTopic}`;
+
+             if (data === undefined || data === "waiting for data...") {
+                  isWaitingOrError = true;
+                  statusMessage = `Waiting for data on ${selectedRobot}/${selectedSubTopic}...`;
+                  headerText += ' (Waiting)';
+             } else if (typeof data === 'string' && data.startsWith("Error:")) {
+                  isWaitingOrError = true;
+                  statusMessage = data; // Show the specific error
+                   headerText += ' (Error)';
+             }
+
+             dataDisplayHeader.textContent = headerText; // Update the data header
+
+             // --- Render based on topic type ---
+             // Visibility/Layout is primarily handled by selectSubTopic
+
+             if (selectedSubTopic === 'routed_map') {
+                 // Canvas rendering
+                 if (isWaitingOrError) {
+                     mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height); // Clear canvas
+                     // Display status on canvas
+                     mapCtx.fillStyle = 'grey'; mapCtx.font = '14px sans-serif'; mapCtx.textAlign = 'center';
+                     mapCtx.fillText(statusMessage || 'Waiting for map data...', mapCanvas.width / 2 || 100, mapCanvas.height / 2 || 50);
+                 } else {
+                     drawMap(mapCanvas, mapCtx, data); // Draw the map data
+                 }
+                 // OSM map position is updated separately by updateOsmMapPositionFromStatus or mqtt_data listener
+
+             } else { // Other topics display in <pre>
+                 if (isWaitingOrError) {
+                     dataDisplayElement.textContent = statusMessage;
+                     dataDisplayElement.classList.add('waiting');
+                     dataDisplayElement.style.display = 'flex'; // Center waiting/error text
+                 } else {
+                     dataDisplayElement.classList.remove('waiting');
+                     dataDisplayElement.style.display = 'block'; // Normal block display for content
+                     try {
+                         // Format JSON nicely, otherwise display as string
+                         dataDisplayElement.textContent = (typeof data === 'object' && data !== null)
+                             ? JSON.stringify(data, null, 2) // Pretty print JSON
+                             : String(data);
+                     } catch (e) {
+                         console.error("Error stringifying/displaying data:", selectedRobot, selectedSubTopic, data, e);
+                         dataDisplayElement.textContent = `Error displaying data: ${e.message}`;
+                         dataDisplayElement.classList.add('waiting'); // Show error with waiting style
+                         dataDisplayElement.style.display = 'flex';
+                     }
+                 }
+             }
+        }
+
+        // --- Function to draw sensor_msgs/Image or similar on Canvas ---
+        function drawMap(canvas, ctx, imageMsg) {
+            // Basic validation of the expected image message structure
+            if (!imageMsg || typeof imageMsg !== 'object' || !imageMsg.data || !imageMsg.width || !imageMsg.height || !imageMsg.encoding) {
+                console.error("Invalid imageMsg data received for routed_map:", imageMsg);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'red'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText('Error: Invalid map data format', canvas.width / 2 || 100, canvas.height / 2 || 50);
+                return;
+            }
+
+            const { width, height, encoding } = imageMsg;
+            let { step, data } = imageMsg;
+
+             // Ensure data is usable (Array, Uint8Array, or Buffer-like)
+             if (!Array.isArray(data) && !(data instanceof Uint8Array) && !(typeof Buffer !== 'undefined' && Buffer.isBuffer(data))) {
+                 console.error("Map data is not an array, Uint8Array, or Buffer:", data);
+                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                 ctx.fillStyle = 'red'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
+                 ctx.fillText('Error: Invalid map data type', canvas.width / 2 || 100, canvas.height / 2 || 50);
+                 return;
+            }
+
+            // Resize canvas if necessary
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                console.log(`Canvas for routed_map resized to ${width}x${height}`);
+            }
+
+            try {
+                const imgData = ctx.createImageData(width, height);
+                const targetData = imgData.data; // This is a Uint8ClampedArray (RGBA)
+                // Ensure sourceData is an array-like structure we can index
+                const sourceData = (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : (data instanceof Uint8Array ? data : Array.from(data));
+
+                let bytesPerPixelSource = 1; // Default for mono8
+                 if (encoding.includes('rgb') || encoding.includes('bgr') || encoding === '8UC3') { bytesPerPixelSource = 3; }
+                 else if (encoding.includes('rgba') || encoding.includes('bgra')) { bytesPerPixelSource = 4; }
+                 else if (encoding === 'mono16' || encoding === '16UC1') { bytesPerPixelSource = 2; } // Note: mono16 might need scaling
+
+                 // Use provided step, or calculate if invalid/missing
+                 if (!step || step < width * bytesPerPixelSource) {
+                     console.warn(`Invalid step (${step}) provided for encoding ${encoding} and width ${width}. Calculating step as ${width * bytesPerPixelSource}.`);
+                     step = width * bytesPerPixelSource;
+                 }
+
+                // Check if source data length is plausible
+                 if (sourceData.length < height * width * bytesPerPixelSource && sourceData.length < height * step) {
+                     console.warn(`Source data length (${sourceData.length}) seems too small for ${width}x${height} ${encoding} (expected ~${height * step}). Rendering might be incomplete.`);
+                 }
+
+
+                // --- Pixel data mapping based on encoding ---
+                let sourceIdx = 0;
+                let targetIdx = 0;
+
+                if (encoding === 'mono8' || encoding === '8UC1') {
+                    for (let y = 0; y < height; y++) {
+                        let rowStartSourceIdx = y * step;
+                        for (let x = 0; x < width; x++) {
+                            sourceIdx = rowStartSourceIdx + x; // 1 byte per pixel
+                            targetIdx = (y * width + x) * 4; // 4 bytes per pixel (RGBA)
+                            if (sourceIdx >= sourceData.length || targetIdx + 3 >= targetData.length) break; // Boundary check
+
+                            const pixelValue = sourceData[sourceIdx];
+                            targetData[targetIdx] = pixelValue;     // R
+                            targetData[targetIdx + 1] = pixelValue; // G
+                            targetData[targetIdx + 2] = pixelValue; // B
+                            targetData[targetIdx + 3] = 255;        // A (Opaque)
+                        }
+                         if (sourceIdx >= sourceData.length || targetIdx + 3 >= targetData.length) break;
+                    }
+                }
+                else if (encoding === 'rgb8') {
+                    for (let y = 0; y < height; y++) {
+                         let rowStartSourceIdx = y * step;
+                         for (let x = 0; x < width; x++) {
+                             sourceIdx = rowStartSourceIdx + x * 3; // 3 bytes per pixel (RGB)
+                             targetIdx = (y * width + x) * 4;     // 4 bytes per pixel (RGBA)
+                             if (sourceIdx + 2 >= sourceData.length || targetIdx + 3 >= targetData.length) break; // Boundary check
+
+                             targetData[targetIdx]     = sourceData[sourceIdx];     // R
+                             targetData[targetIdx + 1] = sourceData[sourceIdx + 1]; // G
+                             targetData[targetIdx + 2] = sourceData[sourceIdx + 2]; // B
+                             targetData[targetIdx + 3] = 255;                     // A
+                         }
+                         if (sourceIdx + 2 >= sourceData.length || targetIdx + 3 >= targetData.length) break;
+                    }
+                }
+                else if (encoding === 'bgr8' || encoding === '8UC3') { // Treat 8UC3 as BGR
+                    for (let y = 0; y < height; y++) {
+                         let rowStartSourceIdx = y * step;
+                         for (let x = 0; x < width; x++) {
+                             sourceIdx = rowStartSourceIdx + x * 3; // 3 bytes per pixel (BGR)
+                             targetIdx = (y * width + x) * 4;     // 4 bytes per pixel (RGBA)
+                              if (sourceIdx + 2 >= sourceData.length || targetIdx + 3 >= targetData.length) break; // Boundary check
+
+                             targetData[targetIdx]     = sourceData[sourceIdx + 2]; // R <- B
+                             targetData[targetIdx + 1] = sourceData[sourceIdx + 1]; // G <- G
+                             targetData[targetIdx + 2] = sourceData[sourceIdx];     // B <- R
+                             targetData[targetIdx + 3] = 255;                     // A
+                         }
+                          if (sourceIdx + 2 >= sourceData.length || targetIdx + 3 >= targetData.length) break;
+                    }
+                }
+                // Add more encodings (rgba8, bgra8, mono16 etc.) here if needed
+                else {
+                    console.warn(`Unsupported image encoding for canvas drawing: ${encoding}.`);
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = 'orange'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillText(`Unsupported encoding: ${encoding}`, canvas.width / 2, canvas.height / 2);
+                    return; // Stop processing
+                }
+
+                // Draw the composed image data onto the canvas
+                ctx.putImageData(imgData, 0, 0);
+
+            } catch (e) {
+                console.error("Error drawing map on canvas:", e);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'red'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText(`Error rendering map: ${e.message}`, canvas.width / 2 || 100, canvas.height / 2 || 50);
+            }
+        }
+
+
+        // --- Update Robot Position on OpenStreetMap ---
+        function updateOsmMapPosition(lat, lon) {
+            if (!osmMap) {
+                 console.warn("OSM Map not initialized, cannot update marker.");
+                 // Try initializing now if the relevant view is active
+                 if(currentView === 'dashboard-view' && selectedSubTopic === 'routed_map') {
+                     initOsmMap();
+                     // If initialization failed, osmMap will still be null
+                     if (!osmMap) return;
+                 } else {
+                    return; // Don't init if not viewing the map split
+                 }
+            }
+            // Validate coordinates
+            if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
+                console.warn("Invalid Lat/Lon received for OSM map update:", lat, lon);
+                return;
+            }
+            // Check bounds (simple sanity check)
+             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                console.warn("Lat/Lon out of bounds:", lat, lon);
+                return;
+            }
+
+
+            const latLng = L.latLng(lat, lon); // Use Leaflet's LatLng object
+
+            if (!robotMarker) {
+                // Create marker if it doesn't exist
+                console.log("Creating robot marker at:", latLng);
+                if (!robotIcon) {
+                    console.error("Robot icon not defined!"); // Should have been set in onload
+                    robotMarker = L.marker(latLng).addTo(osmMap); // Fallback to default icon
+                } else {
+                    robotMarker = L.marker(latLng, { icon: robotIcon }).addTo(osmMap);
+                }
+                osmMap.setView(latLng, 17); // Center map and zoom in on first placement
+            } else {
+                // Update existing marker's position
+                // console.log("Updating robot marker to:", latLng); // Can be noisy, uncomment if needed
+                robotMarker.setLatLng(latLng);
+                // Optionally pan the map to keep the marker in view
+                // osmMap.panTo(latLng);
+            }
+        }
+
+        // Helper to get coords from the latest 'robot_status' data and update map
+        function updateOsmMapPositionFromStatus() {
+            // Requires a selected robot and the OSM map instance
+            if (!selectedRobot || !osmMap) return;
+
+            const statusData = latestData[selectedRobot]?.['robot_status'];
+            if (statusData && typeof statusData === 'object' && statusData.gps) {
+                const lat = statusData.gps.latitude;
+                const lon = statusData.gps.longitude;
+
+                // Check if lat and lon are valid numbers before updating
+                if (typeof lat === 'number' && typeof lon === 'number' && !isNaN(lat) && !isNaN(lon)) {
+                    updateOsmMapPosition(lat, lon);
+                } else {
+                    // console.log("GPS lat/lon missing or invalid in robot_status for OSM update");
+                }
+            } else {
+                // console.log("robot_status data not available or invalid for OSM update");
+                 // Decide if marker should be removed if status is lost - current behavior keeps last known position
+                 // if (robotMarker) {
+                 //     robotMarker.remove();
+                 //     robotMarker = null;
+                 // }
+            }
+        }
+
+
+        // --- View Navigation ---
+         function setupEventListeners() {
+             // Sidebar navigation
+             sidebarNavItems.forEach(item => {
+                 item.addEventListener('click', () => {
+                     const viewId = item.getAttribute('data-view');
+                     if (viewId) showView(viewId);
+                 });
+             });
+             // Robot selection change
+             robotSelector.addEventListener('change', (event) => {
+                 selectRobot(event.target.value);
+             });
+        }
+
+        function showView(viewId) {
+            if (currentView === viewId) return; // No action if already on the view
+            console.log("Switching view to:", viewId);
+            currentView = viewId;
+
+            // Hide all views, then show the active one
+            contentViews.forEach(view => view.classList.remove('active'));
+            const activeView = document.getElementById(viewId);
+            if (activeView) {
+                 activeView.classList.add('active');
+            } else {
+                console.error(`View with ID "${viewId}" not found!`);
+                // Fallback to dashboard?
+                document.getElementById('dashboard-view')?.classList.add('active');
+                currentView = 'dashboard-view';
+                viewId = 'dashboard-view';
+            }
+
+            // Update active state in sidebar
+            sidebarNavItems.forEach(item => {
+                item.classList.toggle('active', item.getAttribute('data-view') === viewId);
+            });
+
+            // Special handling when switching *to* the dashboard view
+            if (viewId === 'dashboard-view') {
+                // Re-apply layout logic if a topic was selected
+                 if (selectedRobot && selectedSubTopic) {
+                    // This ensures the correct layout (split map or full pre) is restored
+                    selectSubTopic(selectedSubTopic);
+                 } else {
+                    // If no topic selected, ensure the status message is shown correctly
+                    renderData();
+                 }
+                 // Invalidate map size if returning to dashboard and map should be visible
+                 if (selectedSubTopic === 'routed_map' && osmMap) {
+                      setTimeout(() => osmMap.invalidateSize(), 10);
+                 }
+            }
+        }
+
+
+        // --- Socket.IO Event Listeners ---
+        socket.on('connect', () => {
+            console.log('Socket.IO Connected! SID:', socket.id);
+            setStatus("Connected. Waiting for initial state...", true);
+            // Re-enable selector on connect (might have been disabled)
+            // Populate function will handle actual enabling based on robot list
+        });
+
+        socket.on('disconnect', (reason) => {
+            console.log('Socket.IO Disconnected! Reason:', reason);
+            setStatus("Disconnected from server. Attempting to reconnect...", true);
+            robotSelector.disabled = true; // Disable selector on disconnect
+            // Optionally clear robot list or show overlay
+             knownRobots = [];
+             // populateRobotSelector([]); // Optionally clear selector visually
+        });
+
+        socket.on('connect_error', (err) => {
+             console.error('Socket.IO Connection Error:', err.message);
+             setStatus(`Connection Error: ${err.message}. Retrying...`, true);
+             robotSelector.disabled = true;
+        });
+
+
+        // Received when first connecting or server restarts
+        socket.on('initial_state', (state) => {
+             console.log('Received initial state:', state);
+             latestData = state.all_data || {};
+             expectedSubTopics = state.robot_sub_topics || [];
+             const currentRobotIds = Object.keys(latestData).sort();
+
+             // Populate selector with the latest list
+             populateRobotSelector(currentRobotIds);
+
+             // If a robot was selected previously AND still exists in the new state
+             if (selectedRobot && currentRobotIds.includes(selectedRobot)) {
+                 robotSelector.value = selectedRobot; // Keep it selected in dropdown
+                 populateTopicList(selectedRobot); // Refresh its topic list
+
+                 const availableTopics = getSubTopicsForRobot(selectedRobot);
+                 // If a subtopic was selected previously AND still exists for this robot
+                 if (selectedSubTopic && availableTopics.includes(selectedSubTopic)) {
+                     selectSubTopic(selectedSubTopic); // Re-select topic (handles layout + render)
+                 } else {
+                     // Previously selected topic is gone, reset it
+                     selectedSubTopic = null;
+                     setStatus(`Select a topic for ${selectedRobot}.`, true);
+                     renderData(); // Update display to show status
+                 }
+             } else {
+                 // No valid robot selected or previous selection disappeared
+                 selectRobot(null); // Deselect robot (handles UI reset)
+             }
+             robotSelector.disabled = (currentRobotIds.length === 0);
+        });
+
+        // If server informs about a single new robot (optional, depends on backend implementation)
+         socket.on('new_robot_discovered', (newRobotId) => {
+             console.log("New robot discovered:", newRobotId);
+             if (!knownRobots.includes(newRobotId)) {
+                 knownRobots.push(newRobotId);
+                 knownRobots.sort();
+                 if (!latestData[newRobotId]) { latestData[newRobotId] = {}; } // Initialize data structure
+                 // Repopulate selector, preserving current selection if possible
+                 populateRobotSelector(knownRobots);
+             }
+         });
+
+        // --- Main Handler for Incoming MQTT Data ---
+        socket.on('mqtt_data', (data) => {
+            // Basic validation of the message structure
+            if (!data || !data.robot_id || !data.sub_topic || !data.hasOwnProperty('payload')) {
+                 console.warn("Received malformed mqtt_data event:", data);
+                 return;
+            }
+
+            const { robot_id, sub_topic, payload } = data;
+
+            // --- Update internal data store ---
+            let topicListChanged = false;
+            if (!latestData[robot_id]) {
+                console.warn(`Received data for unknown robot ${robot_id}, adding dynamically.`);
+                latestData[robot_id] = {};
+                // If this robot wasn't known, update the list and selector
+                if (!knownRobots.includes(robot_id)) {
+                    knownRobots.push(robot_id);
+                    knownRobots.sort();
+                    populateRobotSelector(knownRobots);
+                }
+            }
+            // Check if this is a new subtopic for this robot
+            if (!latestData[robot_id].hasOwnProperty(sub_topic)) {
+                topicListChanged = true;
+                console.log(`New subtopic "${sub_topic}" received for robot "${robot_id}"`);
+            }
+            // Store the latest payload
+            latestData[robot_id][sub_topic] = payload;
+
+            // --- Update UI ONLY if the data is relevant to the current view ---
+            if (robot_id === selectedRobot && currentView === 'dashboard-view') {
+                // 1. Update topic list if it changed for the *selected* robot
+                if (topicListChanged) {
+                    console.log(`Repopulating topic list for ${selectedRobot} due to new topic: ${sub_topic}`);
+                    populateTopicList(selectedRobot);
+                }
+
+                // 2. Render data display if the received data matches the *selected* subtopic
+                if (sub_topic === selectedSubTopic) {
+                    renderData(); // Re-render the main data area (<pre> or canvas)
+                }
+
+                // 3. Update OSM map if 'robot_status' data arrived AND 'routed_map' is the selected view
+                //    (This is independent of step 2, status updates position even if viewing raw status data)
+                if (sub_topic === 'robot_status' && selectedSubTopic === 'routed_map') {
+                     // Use the helper function which includes validation
+                     updateOsmMapPositionFromStatus();
+                }
+                 // Handle case where we are viewing raw robot_status and need to update map marker
+                 else if (sub_topic === 'robot_status' && selectedSubTopic !== 'routed_map' && robotMarker) {
+                     // We're not in split view, but maybe update marker in background?
+                     // updateOsmMapPositionFromStatus(); // Uncomment if desired
+                 }
+            }
+        });
+
+    </script>
+</body>
+</html>
