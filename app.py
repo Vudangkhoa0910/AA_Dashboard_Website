@@ -461,13 +461,15 @@ if __name__ == '__main__':
     mqtt_listener_thread_obj = threading.Thread(target=mqtt_listener_thread_func, name="MQTTListenerThread", daemon=True)
     mqtt_listener_thread_obj.start()
 
-    log.info(f"📈 Dashboard available at http://0.0.0.0:5001 (or your local IP)")
+    # Get port from environment variable (for deployment platforms)
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    host = '0.0.0.0'
+    
+    log.info(f"📈 Dashboard available at http://{host}:{port}")
     try:
-        # Use eventlet server directly for better control with monkey_patching
-        # socketio.run(app, host="0.0.0.0", port=5001, debug=False, use_reloader=False) # This might still use Werkzeug implicitly sometimes
-        # Use eventlet wsgi explicitly if needed, but socketio.run usually handles it with async_mode='eventlet'
-        import eventlet.wsgi
-        eventlet.wsgi.server(eventlet.listen(('0.0.0.0', 5002)), app)
+        # Use socketio.run for deployment compatibility
+        socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
     except KeyboardInterrupt:
         log.info("KeyboardInterrupt received. Shutting down...")
         signal_handler(signal.SIGINT, None) # Trigger graceful shutdown

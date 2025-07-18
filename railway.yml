@@ -1,0 +1,7 @@
+version: 1
+services:
+  - name: web
+    source:
+      dockerfile: ./Dockerfile
+    domains:
+      - alpha-asimov-dashboard.up.railway.app

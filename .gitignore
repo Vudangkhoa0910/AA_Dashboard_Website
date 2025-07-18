@@ -8,6 +8,24 @@ venv/
 env/
 .env/
 *.env
+
+# Local development directories (không deploy)
 /script_in_robot
 /server_sim
 /aa_web
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local config
+config.local.py

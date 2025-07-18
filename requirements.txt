@@ -1,7 +1,7 @@
-Flask
-Flask-SocketIO
-paho-mqtt
-msgpack
-eventlet 
-gunicorn 
-requests
+Flask==2.3.3
+Flask-SocketIO==5.3.6
+paho-mqtt==1.6.1
+msgpack==1.0.7
+eventlet==0.33.3
+gunicorn==21.2.0
+requests==2.31.0
