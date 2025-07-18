@@ -34,10 +34,11 @@ app.config['SECRET_KEY'] = 'a_very_secret_key_change_this_12345!'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=False, engineio_logger=False)
 
 # --- Configuration ---
-MQTT_HOST = "52.220.146.209"
-MQTT_PORT = 1883
-MQTT_USER = "alphaasimov2024"
-MQTT_PASS = "gvB3DtGfus6U"
+import os
+MQTT_HOST = os.environ.get('MQTT_HOST', "52.220.146.209")
+MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
+MQTT_USER = os.environ.get('MQTT_USER', "alphaasimov2024")
+MQTT_PASS = os.environ.get('MQTT_PASS', "gvB3DtGfus6U")
 MQTT_LISTENER_CLIENT_ID = f"dashboard_listener_{int(time.time())}"
 MQTT_PUBLISHER_CLIENT_ID_PREFIX = "dashboard_publisher_"
 MQTT_KEEPALIVE = 60
@@ -47,6 +48,7 @@ MQTT_RECONNECT_DELAY = 15 # seconds
 # Robot IDs should match the format: {username}_{mac_id}
 KNOWN_ROBOTS = ["embed_e6d9e2", "bulldog01_5f899b", "sim_robot_1", "sim_robot_2"]
 log.info(f"Managing known robots: {KNOWN_ROBOTS}")
+log.info(f"MQTT Config - Host: {MQTT_HOST}:{MQTT_PORT}, User: {MQTT_USER}")
 
 # Expected sub-topics
 ROBOT_SUB_TOPICS_R2S = [
@@ -450,20 +452,28 @@ def signal_handler(signum, frame):
     # Flask-SocketIO doesn't have a specific shutdown function like Flask's dev server
     # rely on the signal terminating the process after cleanup.
 
+# --- Application Initialization (for both development and production) ---
+def start_mqtt_listener():
+    """Start MQTT listener thread - called both in __main__ and by Gunicorn"""
+    global mqtt_listener_thread_obj
+    if mqtt_listener_thread_obj is None or not mqtt_listener_thread_obj.is_alive():
+        initialize_robot_data()
+        log.info("🚀 Starting Dashboard Application...")
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        mqtt_listener_thread_obj = threading.Thread(target=mqtt_listener_thread_func, name="MQTTListenerThread", daemon=True)
+        mqtt_listener_thread_obj.start()
+        log.info("📡 MQTT Listener thread started for production deployment")
+
+# Initialize when module is imported (for Gunicorn)
+start_mqtt_listener()
+
 # --- Main Execution ---
-# (Giữ nguyên phần __main__)
 if __name__ == '__main__':
-    initialize_robot_data()
-    log.info("🚀 Starting Dashboard Application...")
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    mqtt_listener_thread_obj = threading.Thread(target=mqtt_listener_thread_func, name="MQTTListenerThread", daemon=True)
-    mqtt_listener_thread_obj.start()
-
     # Get port from environment variable (for deployment platforms)
     import os
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5001))
     host = '0.0.0.0'
     
     log.info(f"📈 Dashboard available at http://{host}:{port}")
