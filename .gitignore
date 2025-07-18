@@ -8,3 +8,6 @@ venv/
 env/
 .env/
 *.env
+/script_in_robot
+/server_sim
+/aa_web
